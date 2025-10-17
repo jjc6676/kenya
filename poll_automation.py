@@ -16,8 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+## Using Selenium Manager (built into Selenium 4.6+) instead of webdriver-manager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Configure logging
@@ -102,25 +101,13 @@ class PollAutomation:
             
             chrome_options = self._build_chrome_options(self.instance_id)
             
-            # Determine Chromium vs Google Chrome
-            binary_path = getattr(chrome_options, "binary_location", None)
-            is_chromium = False
-            if binary_path and "chromium" in binary_path.lower():
-                is_chromium = True
-            elif os.environ.get("CHROME_BINARY", "").lower().find("chromium") != -1:
-                is_chromium = True
-
-            chrome_type = ChromeType.CHROMIUM if is_chromium else ChromeType.GOOGLE
-
             # On Linux servers, default to headless to reduce memory
             if platform.system().lower() != "windows":
                 chrome_options.add_argument("--headless=new")
                 chrome_options.add_argument("--disable-gpu")
 
-            # Initialize driver with automatic ChromeDriver management
-            driver_path = ChromeDriverManager(chrome_type=chrome_type).install()
-            service = Service(driver_path)
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Initialize driver using Selenium Manager (auto-downloads correct driver)
+            self.driver = webdriver.Chrome(options=chrome_options)
             
             # Set page load timeout
             self.driver.set_page_load_timeout(30)
