@@ -7,6 +7,8 @@ Automates voting for Kenya Cummings in the poll, running in an infinite loop.
 import time
 import logging
 import os
+import shutil
+import platform
 import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -15,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.utils import ChromeType
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Configure logging
@@ -53,17 +56,43 @@ class PollAutomation:
         temp_root = tempfile.gettempdir()
         profile_dir = os.path.join(temp_root, f"chrome_poll_profile_{instance_id}")
         chrome_options.add_argument(f"--user-data-dir={profile_dir}")
-        
-        # Try to use installed Chrome if present (PyInstaller friendly)
-        potential_paths = [
-            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
-        ]
-        for p in potential_paths:
-            if p and os.path.isfile(p):
-                chrome_options.binary_location = p
-                break
+
+        # Allow explicit override via environment variable
+        env_binary = os.environ.get("CHROME_BINARY")
+        if env_binary and os.path.isfile(env_binary):
+            chrome_options.binary_location = env_binary
+            return chrome_options
+
+        system_name = platform.system().lower()
+
+        if system_name.startswith("win"):
+            # Try to use installed Chrome if present (PyInstaller friendly)
+            potential_paths = [
+                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            ]
+            for p in potential_paths:
+                if p and os.path.isfile(p):
+                    chrome_options.binary_location = p
+                    break
+        else:
+            # Linux/macOS: try common locations and PATH
+            potential_paths = [
+                shutil.which("google-chrome"),
+                shutil.which("google-chrome-stable"),
+                shutil.which("chromium"),
+                shutil.which("chromium-browser"),
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/snap/bin/chromium",
+            ]
+            for p in potential_paths:
+                if p and os.path.isfile(p):
+                    chrome_options.binary_location = p
+                    break
         return chrome_options
 
     def setup_driver(self):
@@ -73,8 +102,24 @@ class PollAutomation:
             
             chrome_options = self._build_chrome_options(self.instance_id)
             
+            # Determine Chromium vs Google Chrome
+            binary_path = getattr(chrome_options, "binary_location", None)
+            is_chromium = False
+            if binary_path and "chromium" in binary_path.lower():
+                is_chromium = True
+            elif os.environ.get("CHROME_BINARY", "").lower().find("chromium") != -1:
+                is_chromium = True
+
+            chrome_type = ChromeType.CHROMIUM if is_chromium else ChromeType.GOOGLE
+
+            # On Linux servers, default to headless to reduce memory
+            if platform.system().lower() != "windows":
+                chrome_options.add_argument("--headless=new")
+                chrome_options.add_argument("--disable-gpu")
+
             # Initialize driver with automatic ChromeDriver management
-            service = Service(ChromeDriverManager().install())
+            driver_path = ChromeDriverManager(chrome_type=chrome_type).install()
+            service = Service(driver_path)
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             
             # Set page load timeout
