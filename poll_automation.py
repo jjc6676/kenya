@@ -7,8 +7,6 @@ Automates voting for Kenya Cummings in the poll, running in an infinite loop.
 import time
 import logging
 import os
-import shutil
-import platform
 import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -16,7 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-## Using Selenium Manager (built into Selenium 4.6+) instead of webdriver-manager
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Configure logging
@@ -50,62 +48,22 @@ class PollAutomation:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-
-        # Optional proxy support via env PROXY_URL (e.g., http://user:pass@host:port)
-        proxy_url = os.environ.get("PROXY_URL")
-        if proxy_url:
-            chrome_options.add_argument(f"--proxy-server={proxy_url}")
-
-        # Spoof a desktop user-agent (override with USER_AGENT env)
-        default_ua = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/119.0.0.0 Safari/537.36"
-        )
-        user_agent = os.environ.get("USER_AGENT", default_ua)
-        chrome_options.add_argument(f"--user-agent={user_agent}")
         
         # Isolated user-data-dir per instance in OS temp
         temp_root = tempfile.gettempdir()
         profile_dir = os.path.join(temp_root, f"chrome_poll_profile_{instance_id}")
         chrome_options.add_argument(f"--user-data-dir={profile_dir}")
-
-        # Allow explicit override via environment variable
-        env_binary = os.environ.get("CHROME_BINARY")
-        if env_binary and os.path.isfile(env_binary):
-            chrome_options.binary_location = env_binary
-            return chrome_options
-
-        system_name = platform.system().lower()
-
-        if system_name.startswith("win"):
-            # Try to use installed Chrome if present (PyInstaller friendly)
-            potential_paths = [
-                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-                os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-                os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
-            ]
-            for p in potential_paths:
-                if p and os.path.isfile(p):
-                    chrome_options.binary_location = p
-                    break
-        else:
-            # Linux/macOS: try common locations and PATH
-            potential_paths = [
-                shutil.which("google-chrome"),
-                shutil.which("google-chrome-stable"),
-                shutil.which("chromium"),
-                shutil.which("chromium-browser"),
-                "/usr/bin/google-chrome",
-                "/usr/bin/google-chrome-stable",
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/snap/bin/chromium",
-            ]
-            for p in potential_paths:
-                if p and os.path.isfile(p):
-                    chrome_options.binary_location = p
-                    break
+        
+        # Try to use installed Chrome if present (PyInstaller friendly)
+        potential_paths = [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        ]
+        for p in potential_paths:
+            if p and os.path.isfile(p):
+                chrome_options.binary_location = p
+                break
         return chrome_options
 
     def setup_driver(self):
@@ -115,15 +73,9 @@ class PollAutomation:
             
             chrome_options = self._build_chrome_options(self.instance_id)
             
-            # On Linux servers, default to headless (override with HEADLESS=0)
-            if platform.system().lower() != "windows":
-                headless_env = os.environ.get("HEADLESS", "1").lower()
-                if headless_env not in ("0", "false", "no"):  # headless enabled
-                    chrome_options.add_argument("--headless=new")
-                    chrome_options.add_argument("--disable-gpu")
-
-            # Initialize driver using Selenium Manager (auto-downloads correct driver)
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Initialize driver with automatic ChromeDriver management
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
             
             # Set page load timeout
             self.driver.set_page_load_timeout(30)
